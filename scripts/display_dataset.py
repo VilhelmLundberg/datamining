@@ -1,21 +1,25 @@
+from pathlib import Path
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-data_path = "../data/"
-plot_path = "../plots/"
+
+project_root = Path(__file__).resolve().parent.parent
+
+data_path = project_root / "data" / "raw"
+plot_path = project_root / "plots"
 
 #load csv
-user_ratings = pd.read_csv(data_path+"user_ratings.csv")
-themes = pd.read_csv(data_path+"themes.csv")
-subcategories = pd.read_csv(data_path+"subcategories.csv")
-ratings_distribution = pd.read_csv(data_path+"ratings_distribution.csv")
-publishers = pd.read_csv(data_path+"publishers_reduced.csv")
-mechanics = pd.read_csv(data_path+"mechanics.csv")
-games = pd.read_csv(data_path+"games.csv")
-designers = pd.read_csv(data_path+"designers_reduced.csv")
-artists = pd.read_csv(data_path+"artists_reduced.csv")
+user_ratings = pd.read_csv(data_path / "user_ratings.csv")
+themes = pd.read_csv(data_path / "themes.csv")
+subcategories = pd.read_csv(data_path / "subcategories.csv")
+ratings_distribution = pd.read_csv(data_path / "ratings_distribution.csv")
+publishers = pd.read_csv(data_path / "publishers_reduced.csv")
+mechanics = pd.read_csv(data_path / "mechanics.csv")
+games = pd.read_csv(data_path / "games.csv")
+designers = pd.read_csv(data_path / "designers_reduced.csv")
+artists = pd.read_csv(data_path / "artists_reduced.csv")
 
 dfs = {
     "user_ratings": user_ratings,
@@ -43,7 +47,7 @@ plt.title("Distribution of User Ratings")
 plt.xlabel("Rating")
 plt.ylabel("Frequency")
 plt.xticks(np.arange(1, user_ratings["Rating"].max()+1))
-plt.savefig(plot_path+"user_rating_distribution.jpg")
+plt.savefig(plot_path / "user_rating_distribution.jpg")
 
 #dont display the bggid
 only_mechanics = mechanics.drop("BGGId", axis=1)
@@ -61,4 +65,4 @@ plt.xlabel("Frequency", fontsize=12)
 plt.ylabel("Mechanic", fontsize=12)
 plt.grid(axis="x", linestyle='--', alpha=0.7)
 plt.tight_layout()
-plt.savefig(plot_path+"top_mechanics.jpg")
+plt.savefig(plot_path / "top_mechanics.jpg")

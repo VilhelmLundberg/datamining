@@ -1,0 +1,24 @@
+# Ignore raw and processed data
+data/raw/*
+data/processed/*
+
+# Ignore generated outputs
+outputs/*
+
+# Ignore generated plots
+plots/*
+
+# But keep the folders via .gitkeep files
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+!outputs/.gitkeep
+!plots/.gitkeep
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+
