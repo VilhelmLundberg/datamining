@@ -1,6 +1,6 @@
-import pandas as pd
-from pathlib import Path
 import time
+from pathlib import Path
+import pandas as pd
 from mlxtend.frequent_patterns import apriori, association_rules
 
 
@@ -17,7 +17,7 @@ MAX_ITEMSET_LENGTH = 2
 
 
 # ============================================================
-# PATHS + LOAD DATA
+# LOAD DATA
 # ============================================================
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -33,78 +33,73 @@ print("ASSOCIATION RULE MINING")
 print("========================================")
 print(f"Ratings: {len(ratings):,}")
 print(f"Users: {ratings['Username'].nunique():,}")
-print(f"Games in ratings: {ratings['BGGId'].nunique():,}")
+print(f"Games: {ratings['BGGId'].nunique():,}")
 
 
 # ============================================================
 # 1. FILTER USERS
 # ============================================================
 
-# Only keep users who have rated enough games to form meaningful transactions.
-user_rating_counts = ratings.groupby("Username").size()
-valid_users = user_rating_counts[user_rating_counts >= MIN_USER_RATINGS].index
-ratings_arm = ratings[ratings["Username"].isin(valid_users)].copy()
+# Keep users with enough ratings to form meaningful transactions
+user_counts = ratings.groupby("Username").size()
+valid_users = user_counts[user_counts >= MIN_USER_RATINGS].index
+ratings_arm = ratings[ratings["Username"].isin(valid_users)]
 
 print("\n--- USER FILTERING ---")
-print(f"Minimum ratings required: {MIN_USER_RATINGS}")
+print(f"Minimum ratings: {MIN_USER_RATINGS}")
 print(f"Users remaining: {ratings_arm['Username'].nunique():,}")
 print(f"Ratings remaining: {len(ratings_arm):,}")
 
 
 # ============================================================
-# 2. CONVERT RATINGS INTO LIKES
+# 2. CONVERT RATINGS TO LIKES
 # ============================================================
 
-# ARM uses binary transactions, so Rating >= MIN_RATING is treated as a like.
-liked = ratings_arm[ratings_arm["Rating"] >= MIN_RATING].copy()
+# A rating >= MIN_RATING is considered a positive preference
+liked = ratings_arm[ratings_arm["Rating"] >= MIN_RATING]
 
 print("\n--- LIKE FILTERING ---")
 print(f"Minimum rating considered a like: {MIN_RATING}")
-print(f"Positive ratings remaining: {len(liked):,}")
-print(f"Users with at least one liked game: {liked['Username'].nunique():,}")
-print(f"Games with at least one like: {liked['BGGId'].nunique():,}")
+print(f"Positive ratings: {len(liked):,}")
+print(f"Users: {liked['Username'].nunique():,}")
+print(f"Games: {liked['BGGId'].nunique():,}")
 
 
 # ============================================================
 # 3. REMOVE RARE GAMES
 # ============================================================
 
-# Only keep games liked by at least MIN_GAME_LIKES unique users.
-game_like_counts = liked.groupby("BGGId")["Username"].nunique()
-valid_games = game_like_counts[game_like_counts >= MIN_GAME_LIKES].index
-liked = liked[liked["BGGId"].isin(valid_games)].copy()
+# Keep games liked by at least MIN_GAME_LIKES unique users
+game_counts = liked.groupby("BGGId")["Username"].nunique()
+valid_games = game_counts[game_counts >= MIN_GAME_LIKES].index
+liked = liked[liked["BGGId"].isin(valid_games)]
 
 print("\n--- GAME FILTERING ---")
-print(f"Minimum likes required: {MIN_GAME_LIKES}")
+print(f"Minimum likes: {MIN_GAME_LIKES}")
 print(f"Games remaining: {liked['BGGId'].nunique():,}")
 print(f"Users remaining: {liked['Username'].nunique():,}")
-print(f"Positive ratings remaining: {len(liked):,}")
+print(f"Positive ratings: {len(liked):,}")
 
 
 # ============================================================
 # 4. CREATE TRANSACTION MATRIX
 # ============================================================
 
+# Rows = users, columns = games, True = user liked the game
 basket = liked.assign(Liked=True).pivot_table(
     index="Username", columns="BGGId", values="Liked",
     aggfunc="max", fill_value=False
-).astype(bool)
+).astype(pd.SparseDtype(bool, False))
 
-# Convert to sparse representation to reduce memory usage
-basket = basket.astype(pd.SparseDtype(bool, False))
-
-# mlxtend requires sparse DataFrames with integer column names
-# to use compatible names, so convert BGGIds to strings
+# mlxtend requires compatible column names for sparse DataFrames
 basket.columns = basket.columns.astype(str)
 
-number_of_likes = len(liked)
-number_of_possible_values = basket.shape[0] * basket.shape[1]
-density = number_of_likes / number_of_possible_values
+density = len(liked) / (basket.shape[0] * basket.shape[1])
 
 print("\n--- TRANSACTION MATRIX ---")
-print(f"Transactions (users): {basket.shape[0]:,}")
-print(f"Items (games): {basket.shape[1]:,}")
-print(f"Matrix density: {density:.4%}")
+print(f"Transactions: {basket.shape[0]:,}")
+print(f"Items: {basket.shape[1]:,}")
+print(f"Density: {density:.4%}")
 
 
 # ============================================================
@@ -112,7 +107,7 @@ print(f"Matrix density: {density:.4%}")
 # ============================================================
 
 print("\n--- RUNNING APRIORI ---")
-start_time = time.time()
+start = time.perf_counter()
 
 frequent_itemsets = apriori(
     basket,
@@ -122,17 +117,16 @@ frequent_itemsets = apriori(
     low_memory=True
 )
 
-elapsed_time = time.time() - start_time
-print(f"Apriori runtime: {elapsed_time:.2f} seconds")
+runtime = time.perf_counter() - start
+print(f"Runtime: {runtime:.2f} seconds")
+
+if frequent_itemsets.empty:
+    raise SystemExit("No frequent itemsets found.")
 
 frequent_itemsets["length"] = frequent_itemsets["itemsets"].apply(len)
 frequent_itemsets = frequent_itemsets.sort_values("support", ascending=False)
 
-print(f"Frequent itemsets found: {len(frequent_itemsets):,}")
-
-if frequent_itemsets.empty:
-    print("No frequent itemsets found. Try decreasing MIN_SUPPORT or MIN_GAME_LIKES.")
-    exit()
+print(f"Frequent itemsets: {len(frequent_itemsets):,}")
 
 
 # ============================================================
@@ -141,15 +135,21 @@ if frequent_itemsets.empty:
 
 print("\n--- GENERATING RULES ---")
 
-rules = association_rules(frequent_itemsets, metric="confidence", min_threshold=MIN_CONFIDENCE)
-rules = rules[rules["lift"] > 1].copy()
-rules = rules.sort_values(["lift", "confidence"], ascending=False)
+rules = association_rules(
+    frequent_itemsets,
+    metric="confidence",
+    min_threshold=MIN_CONFIDENCE
+)
 
-print(f"Association rules found: {len(rules):,}")
+# Keep only positive associations and sort strongest first
+rules = rules[rules["lift"] > 1].sort_values(
+    ["lift", "confidence"], ascending=False
+)
 
 if rules.empty:
-    print("No rules passed the thresholds. Try decreasing MIN_CONFIDENCE or MIN_SUPPORT.")
-    exit()
+    raise SystemExit("No association rules passed the thresholds.")
+
+print(f"Association rules: {len(rules):,}")
 
 
 # ============================================================
@@ -157,18 +157,18 @@ if rules.empty:
 # ============================================================
 
 games["BGGId"] = games["BGGId"].astype(str)
-game_name_lookup = games.drop_duplicates("BGGId").set_index("BGGId")["Name"].to_dict()
+game_names = games.drop_duplicates("BGGId").set_index("BGGId")["Name"].to_dict()
 
-def convert_ids_to_names(itemset):
-    return [game_name_lookup.get(game_id, f"Unknown ({game_id})") for game_id in itemset]
+def names(itemset):
+    return [game_names.get(game_id, f"Unknown ({game_id})") for game_id in itemset]
 
-rules["antecedent_names"] = rules["antecedents"].apply(convert_ids_to_names)
-rules["consequent_names"] = rules["consequents"].apply(convert_ids_to_names)
-frequent_itemsets["game_names"] = frequent_itemsets["itemsets"].apply(convert_ids_to_names)
+rules["antecedent_names"] = rules["antecedents"].apply(names)
+rules["consequent_names"] = rules["consequents"].apply(names)
+frequent_itemsets["game_names"] = frequent_itemsets["itemsets"].apply(names)
 
 
 # ============================================================
-# 8. SELECT + DISPLAY RESULTS
+# 8. DISPLAY RESULTS
 # ============================================================
 
 rule_results = rules[
@@ -182,15 +182,19 @@ print(rule_results.head(30).to_string(index=False))
 
 
 # ============================================================
-# 9. PREPARE CSV OUTPUT
+# 9. PREPARE OUTPUT
 # ============================================================
 
 rules_output = rule_results.copy()
-rules_output["antecedent_names"] = rules_output["antecedent_names"].apply(lambda x: ", ".join(x))
-rules_output["consequent_names"] = rules_output["consequent_names"].apply(lambda x: ", ".join(x))
 
-itemsets_output = frequent_itemsets[["game_names", "support", "length"]].copy()
-itemsets_output["game_names"] = itemsets_output["game_names"].apply(lambda x: ", ".join(x))
+for col in ["antecedent_names", "consequent_names"]:
+    rules_output[col] = rules_output[col].apply(", ".join)
+
+itemsets_output = frequent_itemsets[
+    ["game_names", "support", "length"]
+].copy()
+
+itemsets_output["game_names"] = itemsets_output["game_names"].apply(", ".join)
 
 
 # ============================================================

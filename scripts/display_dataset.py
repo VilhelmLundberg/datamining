@@ -34,11 +34,24 @@ dfs = {
 }
 
 #print the shape and missing values for all
-for name,df in dfs.items():
-    print(f"{name} shape:", df.shape)
-    print(f"\nMissing values in {name}")
-    print(df.isnull().sum()[df.isnull().sum() > 0])
+#for name,df in dfs.items():
+#    print(f"{name} shape:", df.shape)
+#    print(f"\nMissing values in {name}")
+#    print(df.isnull().sum()[df.isnull().sum() > 0])
 
+# plot missing values (games)
+
+missing = games.isnull().sum()
+missing = missing[missing > 0].sort_values()
+
+plt.figure(figsize=(10, 6))
+missing.plot(kind="barh")
+plt.title("Missing Values in Games Dataset")
+plt.xlabel("Number of Missing Values")
+plt.ylabel("Variable")
+plt.tight_layout()
+plt.savefig(plot_path / "games_missing_values.jpg")
+plt.close()
 
 #Show the actual user ratings distribution
 plt.figure(figsize=(8, 5))
@@ -66,3 +79,83 @@ plt.ylabel("Mechanic", fontsize=12)
 plt.grid(axis="x", linestyle='--', alpha=0.7)
 plt.tight_layout()
 plt.savefig(plot_path / "top_mechanics.jpg")
+
+
+# user activity plot
+
+user_activity = user_ratings.groupby("Username").size()
+
+plt.figure(figsize=(8, 5))
+sns.histplot(user_activity[user_activity <= 100], bins=50)
+plt.axvline(5, linestyle="--", label="Preprocessing threshold (5)")
+plt.axvline(10, linestyle="--", label="ARM threshold (10)")
+plt.title("Number of Ratings per User")
+plt.xlabel("Number of Ratings")
+plt.ylabel("Number of Users")
+plt.legend()
+plt.tight_layout()
+plt.savefig(plot_path / "user_activity_distribution.jpg")
+plt.close()
+
+
+# Histograms of other stats with outliers listed
+
+plot_ranges = {
+    "MinPlayers": (1, 13),
+    "MaxPlayers": (1, 13),
+    "MfgPlaytime": (0, 720),
+    "ComMaxPlaytime": (0, 720),
+    "YearPublished": (1900, 2021)
+}
+
+for col, (lower, upper) in plot_ranges.items():
+    data = games[col].dropna()
+    data_in_range = data[(data >= lower) & (data <= upper)]
+
+    # Calculate values outside displayed range
+    outside = ((data < lower) | (data > upper)).sum()
+    percentage = outside / len(data) * 100
+
+    plt.figure(figsize=(8, 5))
+    sns.histplot(data_in_range, bins=30)
+
+    plt.title(f"Distribution of {col}")
+    plt.xlabel(col)
+    plt.ylabel("Frequency")
+
+    # Information box
+    info = (
+        f"Displayed range: {lower}–{upper}\n"
+        f"Values outside range: {outside:,}\n"
+        f"Outside range: {percentage:.2f}%"
+    )
+
+    plt.text(
+        0.97, 0.95,
+        info,
+        transform=plt.gca().transAxes,
+        horizontalalignment="right",
+        verticalalignment="top",
+        bbox=dict(boxstyle="round", facecolor="white", alpha=0.8)
+    )
+
+    plt.tight_layout()
+    plt.savefig(plot_path / f"{col}_distribution.jpg", dpi=300)
+    plt.close()
+
+
+# statistics of important variables
+
+important_variables = [
+    "YearPublished",
+    "MinPlayers",
+    "MaxPlayers",
+    "MfgPlaytime",
+    "ComAgeRec",
+    "LanguageEase",
+    "NumOwned",
+    "NumUserRatings"
+]
+
+print("\n--- DESCRIPTIVE STATISTICS ---")
+print(games[important_variables].describe().round(2))
