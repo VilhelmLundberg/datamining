@@ -2,13 +2,13 @@ import pandas as pd
 from pathlib import Path
 
 MIN_NUM_RATINGS = 500   # ignore obscure games with few ratings
-TOP_GAMES = 5           # games recommended per rule
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 RAW_DIR = PROJECT_ROOT / "data" / "raw"
 OUTPUT_DIR = PROJECT_ROOT / "outputs"
 
 rules = pd.read_csv(OUTPUT_DIR / "association_rules_mechanics.csv")
+rules = rules.sort_values("lift", ascending=False).reset_index(drop=True)
 mechanics = pd.read_csv(RAW_DIR / "mechanics.csv")
 games = pd.read_csv(
     RAW_DIR / "games.csv",
@@ -40,6 +40,8 @@ def parse(names):
     return result
 
 rows = []
+seen_recommendations = set()
+
 for _, rule in rules.iterrows():
     antecedent = parse(rule["antecedent_names"])
     consequent = parse(rule["consequent_names"])
@@ -47,20 +49,30 @@ for _, rule in rules.iterrows():
     if not all(m in mech_set for m in consequent):
         continue
 
-    # Games that have every consequent mechanic
+    recommendation_key = ", ".join(consequent)
+
+    if recommendation_key in seen_recommendations:
+        continue
+
+    # Keep only the best game for each unique recommendation.
     matches = merged[merged[consequent].all(axis=1)]
-    top = matches.sort_values("BayesAvgRating", ascending=False).head(TOP_GAMES)
+    best = matches.sort_values("BayesAvgRating", ascending=False).head(1)
 
-    for _, g in top.iterrows():
-        rows.append({
-            "if_you_like": ", ".join(antecedent),
-            "recommended_mechanics": ", ".join(consequent),
-            "game": g["Name"],
-            "bayes_rating": round(g["BayesAvgRating"], 2),
-            "lift": round(rule["lift"], 2),
-        })
+    if best.empty:
+        continue
 
-recs = pd.DataFrame(rows).drop_duplicates(subset=["game"], keep="first")
+    g = best.iloc[0]
+    rows.append({
+        "if_you_like": ", ".join(antecedent),
+        "recommended_mechanics": recommendation_key,
+        "game": g["Name"],
+        "bayes_rating": round(g["BayesAvgRating"], 2),
+        "lift": round(rule["lift"], 2),
+    })
+    seen_recommendations.add(recommendation_key)
+
+recs = pd.DataFrame(rows)
+recs = recs.drop_duplicates(keep="first")
 recs.to_csv(OUTPUT_DIR / "game_recommendations.csv", index=False)
 
 print(recs.to_string(index=False))

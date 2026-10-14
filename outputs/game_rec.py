@@ -11,7 +11,10 @@ PLOT_DIR = PROJECT_ROOT / "plots"
 PLOT_DIR.mkdir(parents=True, exist_ok=True)
 
 recs = pd.read_csv(OUTPUT_DIR / "game_recommendations.csv")
-recs = (recs.sort_values("bayes_rating", ascending=False)
+
+# Remove repeated recommendation pairs, then pick the top five by rating and lift.
+recs = recs.drop_duplicates(subset=["recommended_mechanics", "game"], keep="first")
+recs = (recs.sort_values(["bayes_rating", "lift"], ascending=False)
             .head(TOP_N)
             .reset_index(drop=True))
 

@@ -1,89 +1,70 @@
 import pandas as pd
 from pathlib import Path
+from mlxtend.frequent_patterns import apriori, association_rules
 
-MIN_NUM_RATINGS = 500   # ignore obscure games
-TOP_RULES = 5           # one recommendation per top-lift rule
+MIN_SUPPORT = 0.01
+MIN_CONFIDENCE = 0.50
+MAX_ITEMSET_LENGTH = 10
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 RAW_DIR = PROJECT_ROOT / "data" / "raw"
 OUTPUT_DIR = PROJECT_ROOT / "outputs"
-
-rules = pd.read_csv(OUTPUT_DIR / "association_rules_mechanics.csv")
-rules = rules.sort_values("lift", ascending=False).reset_index(drop=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 mechanics = pd.read_csv(RAW_DIR / "mechanics.csv")
-games = pd.read_csv(
-    RAW_DIR / "games.csv",
-    usecols=["BGGId", "Name", "BayesAvgRating", "NumUserRatings"]
-)
+
+print("========================================")
+print("MECHANICS ASSOCIATION RULE MINING")
+print("========================================")
+print(f"Games: {len(mechanics):,}")
 
 mech_cols = [c for c in mechanics.columns if c != "BGGId"]
-mechanics[mech_cols] = mechanics[mech_cols].astype(bool)
-mech_set = set(mech_cols)
+transactions = mechanics[mech_cols].astype(bool)
 
-games = games[games["NumUserRatings"] >= MIN_NUM_RATINGS]
-merged = games.merge(mechanics, on="BGGId").reset_index(drop=True)
+print("\n--- RUNNING APRIORI ---")
+frequent_itemsets = apriori(
+    transactions,
+    min_support=MIN_SUPPORT,
+    use_colnames=True,
+    max_len=MAX_ITEMSET_LENGTH,
+    low_memory=True,
+)
 
-def parse(names):
-    # Rebuild mechanic names from the comma-joined string,
-    # since some names contain commas themselves
-    tokens = names.split(", ")
-    result, i = [], 0
-    while i < len(tokens):
-        for j in range(len(tokens), i, -1):
-            candidate = ", ".join(tokens[i:j])
-            if candidate in mech_set:
-                result.append(candidate)
-                i = j
-                break
-        else:
-            result.append(tokens[i])
-            i += 1
-    return result
+if frequent_itemsets.empty:
+    raise SystemExit("No frequent itemsets found.")
 
-rows = []
-picked_games = set()
+frequent_itemsets["length"] = frequent_itemsets["itemsets"].apply(len)
+frequent_itemsets = frequent_itemsets.sort_values("support", ascending=False)
 
-for _, rule in rules.iterrows():
-    if len(rows) >= TOP_RULES:
-        break
+print(f"Frequent itemsets: {len(frequent_itemsets):,}")
 
-    antecedent = parse(rule["antecedent_names"])
-    consequent = parse(rule["consequent_names"])
-    pattern = antecedent + consequent
+print("\n--- GENERATING RULES ---")
+rules = association_rules(
+    frequent_itemsets,
+    metric="confidence",
+    min_threshold=MIN_CONFIDENCE,
+)
 
-    if not all(m in mech_set for m in pattern):
-        continue
+rules = rules[rules["lift"] > 1].sort_values(["lift", "confidence"], ascending=False)
 
-    # Completeness: share of the full pattern a game has, scaled by its rating
-    matched = merged[pattern].sum(axis=1)
-    completeness = matched / len(pattern)
-    score = completeness * merged["BayesAvgRating"]
+if rules.empty:
+    raise SystemExit("No association rules passed the thresholds.")
 
-    candidates = merged.assign(score=score, completeness=completeness)
-    candidates = candidates[candidates["completeness"] > 0]
-    candidates = candidates.sort_values(["score", "BayesAvgRating"], ascending=False)
+print(f"Association rules: {len(rules):,}")
 
-    # Skip games already recommended by a higher-lift rule
-    best = candidates[~candidates["Name"].isin(picked_games)].head(1)
-    if best.empty:
-        continue
+rules_output = rules[["antecedents", "consequents", "support", "confidence", "lift"]].copy()
+rules_output["antecedent_names"] = rules_output["antecedents"].apply(lambda itemset: ", ".join(sorted(itemset)))
+rules_output["consequent_names"] = rules_output["consequents"].apply(lambda itemset: ", ".join(sorted(itemset)))
+rules_output = rules_output[["antecedent_names", "consequent_names", "support", "confidence", "lift"]]
 
-    g = best.iloc[0]
-    picked_games.add(g["Name"])
+itemsets_output = frequent_itemsets[["itemsets", "support", "length"]].copy()
+itemsets_output["mechanic_names"] = itemsets_output["itemsets"].apply(lambda itemset: ", ".join(sorted(itemset)))
+itemsets_output = itemsets_output[["mechanic_names", "support", "length"]]
 
-    rows.append({
-        "if_you_like": ", ".join(antecedent),
-        "recommended_mechanics": ", ".join(consequent),
-        "game": g["Name"],
-        "bayes_rating": round(g["BayesAvgRating"], 2),
-        "lift": round(rule["lift"], 2),
-        "mechanic_match": f"{int(g['completeness'] * len(pattern))}/{len(pattern)}",
-        "score": round(g["score"], 2),
-    })
+rules_output.to_csv(OUTPUT_DIR / "association_rules_mechanics.csv", index=False)
+itemsets_output.to_csv(OUTPUT_DIR / "frequent_itemsets_mechanics.csv", index=False)
 
-recs = pd.DataFrame(rows)
-recs.to_csv(OUTPUT_DIR / "game_recommendations.csv", index=False)
-
-print(recs.to_string(index=False))
-print(f"\nSaved: {OUTPUT_DIR / 'game_recommendations.csv'}")
+print("\n--- TOP RULES ---")
+print(rules_output.head(30).to_string(index=False))
+print(f"\nSaved: {OUTPUT_DIR / 'association_rules_mechanics.csv'}")
+print(f"Saved: {OUTPUT_DIR / 'frequent_itemsets_mechanics.csv'}")
