@@ -204,6 +204,10 @@
     rules_output.to_csv(OUTPUT_DIR / "association_rules.csv", index=False)
     itemsets_output.to_csv(OUTPUT_DIR / "frequent_itemsets.csv", index=False)
 
+    print("\n--- VISUALIZATION ---")
+    from visualization import plot_association_rules_csv
+    plot_association_rules_csv(OUTPUT_DIR / "association_rules.csv", PROJECT_ROOT / "plots")
+
     print("\n--- FILES CREATED ---")
     print(OUTPUT_DIR / "association_rules.csv")
     print(OUTPUT_DIR / "frequent_itemsets.csv")
